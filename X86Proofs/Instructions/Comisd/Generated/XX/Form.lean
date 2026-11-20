@@ -1,0 +1,36 @@
+import X86Proofs.Step.Sse
+import X86Proofs.Program.ReadWrite.Float
+import X86Proofs.Program.ReadWrite.WriteResult
+import X86Proofs.Instructions.Movups.Form
+import X86Proofs.Instructions.Xorps.Form
+import X86Proofs.Instructions.Comis.Operation
+
+namespace X86Proofs
+
+open X86 X86.Machine X86.UserProcess X86.Helpers
+
+theorem comisd_xmm_xmm_form [Bindings] (s : RamState) (ip : BitVec 64)
+    (ctx : Instruction_Context) (reg rm : BitVec 3) (hmode : In64BitMode s)
+    (hsse : Prelude.SupportedSSE Bindings.processor s)
+    (hrep : ctx.rep_prefix = 0)
+    (hlock : ctx.lock_prefix_present = false)
+    (hevex : ctx.evex_prefix_present = false)
+    (hevexb : ctx.evex_b = 0)
+    (hm : MxcsrPre s)
+    (hok : comisOk 64 s.MXCSR ((Operand.xmm (gprNumber ctx.rex_r4 ctx.rex_r3 reg) : Operand 128).read s)
+      ((Operand.xmm (gprNumber ctx.rex_b4 ctx.rex_b3 rm) : Operand 64).read s)) :
+    (X86.Instructions.COMISD_XMMsd_XMMsd ip ctx 3 reg rm).run s =
+      let dst : Operand 128 := .xmm (gprNumber ctx.rex_r4 ctx.rex_r3 reg)
+      let src : Operand 64 := .xmm (gprNumber ctx.rex_b4 ctx.rex_b3 rm)
+      (.ok (), writeFpFlags s (mxOr s.MXCSR (comisExc 64 s.MXCSR (dst.read s) (src.read s)))
+        (comisFlags 64 s.MXCSR (dst.read s) (src.read s)) ip) := by
+  unfold X86.Instructions.COMISD_XMMsd_XMMsd
+  simp only [hrep, hlock, calculateRM_run_of_mod3 rm ctx hevex, liftM_ok]
+  spec_run [
+    Read_XMM => readXMM_run _ _ _ (by decide) (by decide) hmode,
+    X86.CR4.OSFXSR => cr4OSFXSR_run hsse,
+    X86.CR0.EM => cr0EM_run hsse,
+    X86.CR0.TS => cr0TS_run hsse,
+    X86.Instructions.Operations.COMISf => comis_operation 64 (by decide) _ _ _ _ _ hevexb (by exact hm) (by exact hok)]
+
+end X86Proofs

@@ -1,0 +1,48 @@
+import X86Proofs.Core.Float
+
+/-!
+# MAXPS, MAXPD specification
+
+`MAXPS xmm1, xmm2/m128` (`0F 5F /r`) and `MAXPD xmm1, xmm2/m128` (`66 0F 5F /r`) return
+the larger of the packed single- or double-precision elements lane by lane: `DEST[i] ← IF DEST[i]
+> SRC[i] THEN DEST[i] ELSE SRC[i]` (the second operand when either is a NaN or both are zeros)
+for every `e`-bit lane (`e` = 32 or 64), with MXCSR's DAZ; every lane's exception flags, reduced
+to the invalid one when it is raised (`FP.Prioritize_Operand_Exceptions`, `fpOperandPrio`), are
+ORed into MXCSR. Each lane and its flags are lean-x86's own `FP.Min_Max` at that MXCSR
+(`fpMinMax`, `Core/Float.lean`); there is no IEEE-754 library to state them against
+independently. `maxpSpec e mx a b` is the result, `maxpFlags e mx a b` the exception flags,
+`maxpOk e mx a b` that lean-x86 returns every lane; lean-x86 computes both with
+`Operations.MAXPf e 128`.
+-/
+
+namespace X86Proofs
+
+open X86 X86.Helpers
+
+/-- Lane `i` of the maximum and its flags (as `FP.Prioritize_Operand_Exceptions` reports them). -/
+def maxpLane (e : Nat) (mx : BitVec 32) (a b : BitVec 128) (i : Nat) : BitVec e × BitVec 6 :=
+  ((fpMinMax e true mx (lane e a i) (lane e b i)).1,
+    fpOperandPrio (fpMinMax e true mx (lane e a i) (lane e b i)).2)
+
+/-- The lane-by-lane maximum of `a` and `b` at MXCSR `mx`. -/
+def maxpSpec (e : Nat) (mx : BitVec 32) (a b : BitVec 128) : BitVec 128 :=
+  fpPacked e (maxpLane e mx a b)
+
+/-- The exception flags, every lane's ORed. -/
+def maxpFlags (e : Nat) (mx : BitVec 32) (a b : BitVec 128) : BitVec 6 :=
+  fpPackedFlags e (maxpLane e mx a b)
+
+/-- lean-x86's operation returns a value on every lane (`FpMinMaxOk`). -/
+def maxpOk (e : Nat) (mx : BitVec 32) (a b : BitVec 128) : Prop :=
+  ∀ i < 128 / e, FpMinMaxOk e true mx (lane e a i) (lane e b i)
+
+theorem maxp_operation [X86.Machine.Bindings] (e : Nat) (he : e = 32 ∨ e = 64)
+    (s : X86.Machine.RamState) (a b : BitVec 128) (hm : MxcsrPre s) (hok : maxpOk e s.MXCSR a b) :
+    (X86.Instructions.Operations.MAXPf e 128 a b).run s =
+      (.ok (maxpSpec e s.MXCSR a b),
+        { s with MXCSR := mxOr s.MXCSR (maxpFlags e s.MXCSR a b) }) := by
+  rcases he with rfl | rfl <;> unfold X86.Instructions.Operations.MAXPf <;> fp_packed_start_minmax
+  · fp_packed_loop 32 (fun i hi => fpMinMax_run _ (by decide) _ _ _ _ (hok i hi)) hm masked
+  · fp_packed_loop 64 (fun i hi => fpMinMax_run _ (by decide) _ _ _ _ (hok i hi)) hm masked
+
+end X86Proofs

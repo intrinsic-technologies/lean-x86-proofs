@@ -1,0 +1,99 @@
+import X86Proofs.Step.Decode
+
+/-!
+# Opcode `08`: `OR r/m8, r8`
+
+The one place that looks inside lean-x86's opcode-`08` decoder (`Decode_Legacy_0_Opcode_08`) and its
+form selection (`Select_Legacy_0_Opcode_08`), architecture rule 5. Several instruction folders use
+the opcode, each through the lemmas here. For each ModRM case the library uses — `mod = 3`
+(`Instructions/Or/Generated/R8`) and a memory operand without LOCK
+(`Instructions/Or/Generated/M8R8`) — a
+`selectLegacy0Opcode08_run_of_…` lemma gives the form the selection picks, and a
+`decodeLegacy0Opcode08_run_of_…` lemma runs the decoder (from the ModRM fetch at `ip + 1`) to the
+call of that form at `ip + 2`. For a new case, add the pair here (the decoder lemma is
+`decode_modrm_form`).
+
+The `…_lock` pairs are the same cases with a LOCK prefix (`lock_prefix_present = true`),
+selecting the `<OP>_LOCK_…` form (the generated `…Lock` rows).
+
+`Decode_Legacy_0`'s dispatch to this decoder is `decodeLegacy0_run_of_opcode08`
+(`Step/Decode/Legacy0.lean`).
+-/
+
+namespace X86Proofs
+
+open X86 X86.Machine X86.UserProcess X86.Helpers
+
+/-- With `mod = 3` in 64-bit mode, opcode 08's form selection picks form 1, `OR_GPR8_GPR8_08`. -/
+theorem selectLegacy0Opcode08_run_of_register (context : Instruction_Context) (a b c d e f : Bool) (modrm : BitVec 8)
+    (hmod : modrm.extractLsb' 6 2 = 3#2) :
+    Select_Legacy_0_Opcode_08 context true a b c d e f modrm = .ok 1 := by
+  simp [Select_Legacy_0_Opcode_08, x86_runtime, X86.Runtime.CheckedSlice.read,
+    bind, pure, Except.bind, Except.pure, hmod, HAnd.hAnd, AndOp.and, strictAnd]
+
+/--
+The opcode-08 decoder with a register ModRM. If fetching the byte after the opcode at `ip`
+returns a ModRM byte with `mod = 3` and leaves state `t` (in 64-bit mode, decoder features
+answered), the decoder runs `OR_GPR8_GPR8_08` from `t` with `Next_IP` `ip + 2` and the ModRM
+`reg` and `rm` fields.
+-/
+theorem decodeLegacy0Opcode08_run_of_register [Bindings] (s t : RamState) (ip : BitVec 64)
+    (context : Instruction_Context) (modrm : BitVec 8) (hmod : modrm.extractLsb' 6 2 = 3#2)
+    (hmode : In64BitMode t) (hf : DecoderFeatures t)
+    (hfetch : (Mem_Fetch (BitVec.add ip 1#64) 8).run s = (.ok modrm, t)) :
+    (Decode_Legacy_0_Opcode_08 ip context).run s =
+      (X86.Instructions.OR_GPR8_GPR8_08 (BitVec.add ip 2#64) context
+        (modrm.extractLsb' 3 3) (modrm.extractLsb' 0 3)).run t := by
+  unfold Decode_Legacy_0_Opcode_08
+  decode_modrm_form s t ip hfetch hmode hf
+    (fun a b c d e f => selectLegacy0Opcode08_run_of_register context a b c d e f modrm hmod)
+
+/-- With `mod ≠ 3` and no LOCK prefix in 64-bit mode, opcode 08's form selection picks form 2,
+`OR_MEMb_GPR8`. -/
+theorem selectLegacy0Opcode08_run_of_memory (context : Instruction_Context)
+    (hlock : context.lock_prefix_present = false) (a b c d e f : Bool) (modrm : BitVec 8)
+    (hmod : modrm.extractLsb' 6 2 ≠ 3#2) :
+    Select_Legacy_0_Opcode_08 context true a b c d e f modrm = .ok 2 := by
+  simp [Select_Legacy_0_Opcode_08, x86_runtime, X86.Runtime.CheckedSlice.read, bind, pure,
+    Except.bind, Except.pure, hmod, hlock, HAnd.hAnd, AndOp.and, strictAnd]
+
+/-- The opcode-08 decoder with a memory ModRM and no LOCK prefix runs `OR_MEMb_GPR8` from the state
+after the ModRM fetch, at the address after the ModRM byte. -/
+theorem decodeLegacy0Opcode08_run_of_memory [Bindings] (s t : RamState) (ip : BitVec 64)
+    (context : Instruction_Context) (modrm : BitVec 8) (hmod : modrm.extractLsb' 6 2 ≠ 3#2)
+    (hlock : context.lock_prefix_present = false)
+    (hmode : In64BitMode t) (hf : DecoderFeatures t)
+    (hfetch : (Mem_Fetch (BitVec.add ip 1#64) 8).run s = (.ok modrm, t)) :
+    (Decode_Legacy_0_Opcode_08 ip context).run s =
+      (X86.Instructions.OR_MEMb_GPR8 (BitVec.add ip 2#64) context (modrm.extractLsb' 6 2)
+        (modrm.extractLsb' 3 3) (modrm.extractLsb' 0 3)).run t := by
+  unfold Decode_Legacy_0_Opcode_08
+  decode_modrm_form s t ip hfetch hmode hf
+    (fun a b c d e f => selectLegacy0Opcode08_run_of_memory context hlock a b c d e f modrm hmod)
+
+/-- With `mod ≠ 3` and a LOCK prefix in 64-bit mode, opcode 08's form selection picks form 3,
+`OR_LOCK_MEMb_GPR8`. -/
+theorem selectLegacy0Opcode08_run_of_memory_lock (context : Instruction_Context)
+    (hlock : context.lock_prefix_present = true) (a b c d e f : Bool) (modrm : BitVec 8)
+    (hmod : modrm.extractLsb' 6 2 ≠ 3#2) :
+    Select_Legacy_0_Opcode_08 context true a b c d e f modrm = .ok 3 := by
+  simp [Select_Legacy_0_Opcode_08, x86_runtime, X86.Runtime.CheckedSlice.read, bind, pure,
+    Except.bind, Except.pure, hmod, hlock, HAnd.hAnd, AndOp.and, strictAnd]
+
+/-- The opcode-08 decoder with a memory ModRM and a LOCK prefix runs `OR_LOCK_MEMb_GPR8` from the
+state
+after the ModRM fetch, at the address after the ModRM byte. -/
+theorem decodeLegacy0Opcode08_run_of_memory_lock [Bindings] (s t : RamState) (ip : BitVec 64)
+    (context : Instruction_Context) (modrm : BitVec 8) (hmod : modrm.extractLsb' 6 2 ≠ 3#2)
+    (hlock : context.lock_prefix_present = true)
+    (hmode : In64BitMode t) (hf : DecoderFeatures t)
+    (hfetch : (Mem_Fetch (BitVec.add ip 1#64) 8).run s = (.ok modrm, t)) :
+    (Decode_Legacy_0_Opcode_08 ip context).run s =
+      (X86.Instructions.OR_LOCK_MEMb_GPR8 (BitVec.add ip 2#64) context (modrm.extractLsb' 6 2)
+        (modrm.extractLsb' 3 3) (modrm.extractLsb' 0 3)).run t := by
+  unfold Decode_Legacy_0_Opcode_08
+  decode_modrm_form s t ip hfetch hmode hf
+    (fun a b c d e f => selectLegacy0Opcode08_run_of_memory_lock context hlock a b c d e f modrm
+      hmod)
+
+end X86Proofs

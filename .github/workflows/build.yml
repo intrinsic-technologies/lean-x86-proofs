@@ -1,0 +1,49 @@
+name: Build
+
+# `lake build` of the library. `--iofail` fails the build on any warning, `sorry` included.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build the library
+    runs-on:
+      - runs-on=${{ github.run_id }}-build/runner=16cpu-linux-x64/volume=80gb
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.1.0
+
+      # lean-x86 is private until it is published: fetch its https URL over SSH with the deploy
+      # key. Remove these two steps once it is public.
+      - name: Load dependency SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.LEAN_X86_DEPLOY_KEY }}
+      - name: Fetch lean-x86 over SSH
+        run: >-
+          git config --global
+          url."git@github.com:intrinsic-technologies/lean-x86.git".insteadOf
+          "https://github.com/intrinsic-technologies/lean-x86.git"
+
+      - name: Set up Lean
+        uses: leanprover/lean-action@v1.6.0
+        with:
+          auto-config: "false"
+          build: "false"
+          test: "false"
+          use-mathlib-cache: "false"
+          use-github-cache: "false"
+
+      - name: Build
+        run: lake build --iofail

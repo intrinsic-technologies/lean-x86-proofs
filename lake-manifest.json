@@ -1,0 +1,16 @@
+{"version": "1.2.0",
+ "packagesDir": ".lake/packages",
+ "packages":
+ [{"url": "https://github.com/intrinsic-technologies/lean-x86.git",
+   "type": "git",
+   "subDir": null,
+   "scope": "",
+   "rev": "3c37036cd3d8c4d04e79a6e5407cb16fded40fa7",
+   "name": "x86",
+   "manifestFile": "lake-manifest.json",
+   "inputRev": "v0.0.2",
+   "inherited": false,
+   "configFile": "lakefile.toml"}],
+ "name": "x86proofs",
+ "lakeDir": ".lake",
+ "fixedToolchain": false}
